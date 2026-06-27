@@ -1,27 +1,36 @@
-# Ethical Boundary
+# 윤리적 경계
 
-This project is a read-only logging prototype. It is not a gameplay automation tool.
+이 프로젝트를 시작할 때 가장 먼저 정한 것은 무엇을 만들지보다 어디까지
+만들지였습니다.
 
-## Allowed Scope
+여러 캐릭터의 상태를 반복해서 확인하다 보면 화면 전환이나 입력까지 자동화하고
+싶어질 수 있습니다. 하지만 그 순간부터 기록 도구가 아니라 게임 클라이언트를
+대신 조작하는 프로그램에 가까워집니다. 플랫폼 정책을 위반할 가능성도 커지고,
+사용자가 결과를 확인하는 과정도 사라집니다.
 
-- Process screenshots that the user manually captures.
-- Extract visible text from OCR or Document Parse results.
-- Convert visible progress data into a structured personal log.
-- Export records to CSV for review or import into Google Sheets.
-- Mark uncertain records as `needs_review`.
+그래서 입력을 사용자가 직접 캡처한 스크린샷으로 제한했습니다. 도구가 하는
+일은 화면에 이미 표시된 정보를 읽고, 사람이 검토할 수 있는 기록으로 바꾸는
+것까지입니다.
 
-## Out of Scope
+## 이 프로젝트에서 다루는 일
 
-- Automated gameplay, farming, combat, pathing, clicking, or input control.
-- Multi-account operation automation.
-- Game client modification or injection.
-- Memory reading, packet inspection, private API access, or reverse engineering.
-- Any feature intended to bypass platform rules, rate limits, or fair-play policies.
+- 직접 캡처한 화면에서 캐릭터 ID와 관심 재화를 읽는 과정
+- OCR과 Document Parse 결과를 비교하고 시각 정보로 보완하는 과정
+- 추출 결과를 JSON이나 CSV로 정리하는 과정
+- 근거가 부족한 값을 `needs_review`로 돌려보내는 과정
 
-## Product Principle
+## 경계를 넘어선다고 판단한 일
 
-The user remains the final actor and reviewer. The tool may reduce manual record keeping, but it must not replace gameplay decisions or interact with the game environment.
+- 로그인, 클릭, 이동, 전투, 파밍처럼 게임 입력을 대신하는 기능
+- 여러 계정을 자동으로 전환하거나 운영하는 기능
+- 클라이언트 변조, 코드 주입, 메모리 읽기
+- 패킷 분석이나 비공개 API를 통한 데이터 수집
+- 플랫폼의 제한이나 공정한 플레이 원칙을 우회하는 기능
 
-## Why This Matters
+수량 하나를 자동으로 채우는 것보다 잘못된 값이 어디서 생겼는지 확인할 수
+있는 흐름을 더 중요하게 보았습니다. 그래서 아이템은 찾았지만 OCR 숫자가
+없을 때 `1`이라고 추측하지 않고, 사용자가 다시 화면을 확인할 수 있도록
+검토 상태로 돌려보냅니다.
 
-Document AI can be useful in personal workflows, but automation projects should define misuse boundaries early. This prototype uses a hobby context to practice that discipline: useful extraction, clear limits, and reviewable outputs.
+이 경계는 기능을 줄이기 위한 장치라기보다 프로젝트를 오래 설명하고 유지할
+수 있게 만드는 설계 조건입니다.

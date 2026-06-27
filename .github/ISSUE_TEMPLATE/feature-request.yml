@@ -1,0 +1,54 @@
+name: 이런 흐름이 더 편할 것 같아요
+description: 반복해서 불편했던 지점과 개선 아이디어를 함께 검토합니다.
+title: "[기능] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        구현 방법이 아직 선명하지 않아도 괜찮습니다. 어떤 상황에서 반복적으로 불편했는지부터 적어주세요.
+        다만 이 프로젝트는 수동 스크린샷을 읽는 도구이므로 게임 조작이나 플레이 자동화는 다루지 않습니다.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 어떤 점이 불편했나요?
+      description: 기능 이름보다 실제로 반복해서 겪은 상황을 들려주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 어떻게 달라지면 좋을까요?
+      description: 원하는 입력과 결과가 있다면 예시와 함께 적어주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 지금은 어떻게 해결하고 있나요?
+      description: 수작업이나 임시 방법을 쓰고 있다면 함께 알려주세요. 우선순위를 판단하는 데 도움이 됩니다.
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 어느 정도가 되면 문제가 해결됐다고 볼 수 있을까요?
+      description: 결과를 확인할 수 있는 기준을 체크리스트로 적어주세요.
+      placeholder: |
+        - [ ] 조건 1
+        - [ ] 조건 2
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: boundary
+    attributes:
+      label: 프로젝트의 경계와 맞는지 확인해 주세요
+      options:
+        - label: 게임 클라이언트나 계정을 직접 조작하는 제안이 아닙니다.
+          required: true
+        - label: 메모리, 패킷 또는 비공개 API에 접근하는 제안이 아닙니다.
+          required: true

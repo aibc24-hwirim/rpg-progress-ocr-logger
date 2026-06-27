@@ -1,26 +1,28 @@
-# Sample Data Policy
+# 샘플 데이터 정책
 
-Public sample data should be synthetic or heavily redacted.
+실제 화면을 그대로 올리면 동작을 설명하기는 쉽지만, 캐릭터 ID와 보유 재화,
+게임 UI 저작물까지 함께 공개됩니다. 반대로 모든 이미지를 숨기면 템플릿
+매칭과 spatial join을 실제로 검증했다는 근거가 약해집니다.
 
-## Public OK
+이 두 문제 사이에서 다음 기준을 사용했습니다.
 
-- Synthetic OCR JSON that resembles the shape of an OCR result.
-- CSV examples generated from synthetic data.
-- Cropped or redacted images only if they remove account-specific context and avoid unnecessary game UI reproduction.
+## 공개 저장소에 포함한 자료
 
-## Keep Local
+- OCR 응답 형식만 재현한 합성 JSON
+- 합성 데이터로 만든 CSV 예시
+- 테스트 실행 중 직접 생성하는 작은 패턴 이미지와 OCR 좌표
+- 캐릭터 영역을 제외하고 탐지 박스만 표시한 인벤토리 시연 이미지
 
-- Raw gameplay screenshots.
-- Screenshots containing character names, account context, currencies, or inventory details.
-- Any image that could imply client automation, account operation, or platform-policy circumvention.
+시연 이미지는 실제 동작을 설명하는 데 필요한 범위만 남겼습니다. 전체 게임
+화면이나 캐릭터 ID를 보여주는 것이 목적이 아니기 때문입니다.
 
-## Portfolio Use
+## 로컬에만 보관하는 자료
 
-For portfolio screenshots, prefer showing:
+- 원본 게임 스크린샷
+- Upstage API의 실제 응답 원문
+- 실제 화면에서 잘라낸 아이템 템플릿
+- 캐릭터 이름, 계정 맥락, 전체 보유 재화가 드러나는 이미지
 
-- A diagram of the pipeline.
-- A redacted OCR response.
-- A Google Sheets-style output table.
-- A short ethical boundary note.
-
-Avoid making the game UI itself the main visual artifact.
+공개 테스트에서는 실제 게임 이미지를 대신해 합성 패턴을 사용합니다. 이
+방식이면 저작물이나 개인 데이터를 커밋하지 않고도 템플릿 탐지, 수량 연결,
+거래 표식 판별, 해상도 보정을 반복해서 검증할 수 있습니다.

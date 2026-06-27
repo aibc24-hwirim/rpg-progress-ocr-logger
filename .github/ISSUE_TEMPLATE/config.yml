@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 윤리적 경계 확인
+    url: https://github.com/aibc24-hwirim/rpg-progress-ocr-logger/blob/main/docs/ethical-boundary.md
+    about: 어디까지를 스크린샷 후처리로 보고 있는지 먼저 읽어볼 수 있습니다.

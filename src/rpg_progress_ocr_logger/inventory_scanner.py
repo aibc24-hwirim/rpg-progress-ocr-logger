@@ -33,7 +33,7 @@ def scan_inventory(
     ocr_json_path: str | Path,
     template_dir: str | Path,
 ) -> dict:
-    """Join visual matches and OCR words without assuming a screenshot filename."""
+    """파일명에 의존하지 않고 시각 탐지와 OCR 단어를 결합한다."""
     image = _read_image(Path(image_path))
     words = load_upstage_words(ocr_json_path)
     numbers = [word for word in words if _integer_value(word.text) is not None]
@@ -82,7 +82,7 @@ def load_upstage_words(path: str | Path) -> list[OcrWord]:
 
 
 def extract_character_id(words: list[OcrWord], image_width: int) -> str:
-    # The ID occupies a stable top-left semantic region as resolution changes.
+    # 해상도가 달라도 캐릭터 ID는 좌측 상단의 동일한 의미 영역에 머문다.
     candidates = [
         word
         for word in words
@@ -109,7 +109,7 @@ def _scan_single_items(
         if score < ITEM_PRESENCE_THRESHOLD:
             continue
         quantity = _nearest_quantity(box, numbers, scale)
-        # A visual match proves an item candidate, not its quantity.
+        # 아이템 외형이 일치해도 주변 OCR 숫자가 없으면 수량을 확정하지 않는다.
         status = "found" if quantity is not None else "needs_review"
         results.append(
             InventoryItem(

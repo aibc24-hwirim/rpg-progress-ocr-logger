@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import cv2
+import numpy as np
+import pytest
 
 from rpg_progress_ocr_logger.inventory_scanner import (
     extract_character_id,
     load_upstage_words,
+    scan_inventory,
 )
 from rpg_progress_ocr_logger.models import Box, OcrWord
 
@@ -47,3 +53,145 @@ def test_load_upstage_words_preserves_text_and_coordinates(tmp_path) -> None:
 
     assert words[0].text == "58"
     assert words[0].box == Box(760, 180, 20, 15)
+
+
+@pytest.mark.parametrize("scale", [1.0, 4 / 3])
+def test_scan_inventory_matches_item_and_quantity_at_multiple_resolutions(
+    tmp_path: Path,
+    scale: float,
+) -> None:
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir()
+    template = _pattern(24, seed=10)
+    cv2.imwrite(str(template_dir / "crest_rare.png"), template)
+
+    width, height = round(960 * scale), round(540 * scale)
+    image = np.zeros((height, width, 3), dtype=np.uint8)
+    scaled_template = cv2.resize(
+        template,
+        (round(24 * scale), round(24 * scale)),
+        interpolation=cv2.INTER_CUBIC,
+    )
+    x, y = round(600 * scale), round(100 * scale)
+    _place(image, scaled_template, x, y)
+
+    image_path = tmp_path / f"screen-{width}.png"
+    ocr_path = tmp_path / f"ocr-{width}.json"
+    cv2.imwrite(str(image_path), image)
+    _write_ocr(
+        ocr_path,
+        [
+            ("SampleHero", 34 * scale, 20 * scale, 110 * scale, 38 * scale),
+            ("180", 608 * scale, 124 * scale, 640 * scale, 142 * scale),
+        ],
+    )
+
+    result = scan_inventory(image_path, ocr_path, template_dir)
+
+    assert result["character_id"] == "SampleHero"
+    assert result["items"] == [
+        {
+            "name": "rare_crest",
+            "quantity": 180,
+            "match_score": 1.0,
+            "status": "found",
+            "notes": "",
+        }
+    ]
+
+
+def test_scan_inventory_marks_missing_quantity_for_review(tmp_path: Path) -> None:
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir()
+    template = _pattern(24, seed=20)
+    cv2.imwrite(str(template_dir / "crest_legendary.png"), template)
+
+    image = np.zeros((540, 960, 3), dtype=np.uint8)
+    _place(image, template, 600, 100)
+    image_path = tmp_path / "screen.png"
+    ocr_path = tmp_path / "ocr.json"
+    cv2.imwrite(str(image_path), image)
+    _write_ocr(ocr_path, [("SampleHero", 34, 20, 110, 38)])
+
+    item = scan_inventory(image_path, ocr_path, template_dir)["items"][0]
+
+    assert item["name"] == "legendary_crest"
+    assert item["quantity"] is None
+    assert item["status"] == "needs_review"
+
+
+def test_trade_marker_selects_only_unbound_gem(tmp_path: Path) -> None:
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir()
+    marker = _pattern(12, seed=30)
+    ruby = _pattern(20, seed=40)
+    cv2.imwrite(str(template_dir / "trade_marker.png"), marker)
+    cv2.imwrite(str(template_dir / "gem_ruby.png"), ruby)
+
+    image = np.zeros((540, 960, 3), dtype=np.uint8)
+    _place(image, marker, 650, 200)
+    _place(image, ruby, 660, 220)
+    image_path = tmp_path / "gems.png"
+    ocr_path = tmp_path / "gems-ocr.json"
+    cv2.imwrite(str(image_path), image)
+    _write_ocr(
+        ocr_path,
+        [
+            ("SampleHero", 34, 20, 110, 38),
+            ("45", 660, 250, 682, 266),
+        ],
+    )
+
+    result = scan_inventory(image_path, ocr_path, template_dir)
+
+    assert result["items"][0]["name"] == "unbound_ruby"
+    assert result["items"][0]["quantity"] == 45
+    assert result["items"][0]["status"] == "found"
+
+
+def test_missing_templates_produce_no_false_items(tmp_path: Path) -> None:
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir()
+    image_path = tmp_path / "empty.png"
+    ocr_path = tmp_path / "empty-ocr.json"
+    cv2.imwrite(str(image_path), np.zeros((540, 960, 3), dtype=np.uint8))
+    _write_ocr(ocr_path, [("SampleHero", 34, 20, 110, 38)])
+
+    result = scan_inventory(image_path, ocr_path, template_dir)
+
+    assert result["items"] == []
+
+
+def _pattern(size: int, seed: int) -> np.ndarray:
+    generator = np.random.default_rng(seed)
+    return generator.integers(0, 256, (size, size, 3), dtype=np.uint8)
+
+
+def _place(image: np.ndarray, template: np.ndarray, x: int, y: int) -> None:
+    height, width = template.shape[:2]
+    image[y : y + height, x : x + width] = template
+
+
+def _write_ocr(path: Path, words: list[tuple[str, float, float, float, float]]) -> None:
+    payload = {
+        "pages": [
+            {
+                "words": [
+                    {
+                        "text": text,
+                        "confidence": 0.99,
+                        "boundingBox": {
+                            "vertices": [
+                                {"x": round(x1), "y": round(y1)},
+                                {"x": round(x2), "y": round(y1)},
+                                {"x": round(x2), "y": round(y2)},
+                                {"x": round(x1), "y": round(y2)},
+                            ]
+                        },
+                    }
+                    for text, x1, y1, x2, y2 in words
+                ]
+            }
+        ]
+    }
+    path.write_text(json.dumps(payload), encoding="utf-8")
