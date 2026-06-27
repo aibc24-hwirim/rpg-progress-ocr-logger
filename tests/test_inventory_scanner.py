@@ -32,7 +32,7 @@ def test_extract_character_id_joins_words_on_same_line() -> None:
         OcrWord("Hero", 0.98, Box(95, 18, 56, 18)),
         OcrWord("레벨:", 0.99, Box(33, 49, 33, 16)),
     ]
-    assert extract_character_id(words, image_width=960) == "게임ID 1"
+    assert extract_character_id(words, image_width=960) == "SampleHero"
 
 
 def test_load_upstage_words_preserves_text_and_coordinates(tmp_path) -> None:
