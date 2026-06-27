@@ -3,45 +3,34 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Callable
 
 import cv2
 import numpy as np
 
 from .models import Box, InventoryItem, OcrWord
-
-BASE_SCREEN_WIDTH = 960
-ITEM_PRESENCE_THRESHOLD = 0.90
-GEM_CLASSIFICATION_THRESHOLD = 0.80
-ITEM_TEMPLATES = {
-    "eternal_legendary_crest": "crest_eternal_legendary.png",
-    "legendary_crest": "crest_legendary.png",
-    "rare_crest": "crest_rare.png",
-    "unbound_gem_power": "gem_power_unbound.png",
-}
-NORMAL_GEM_TEMPLATES = {
-    "tourmaline": "gem_tourmaline.png",
-    "ruby": "gem_ruby.png",
-    "citrine": "gem_citrine.png",
-    "topaz": "gem_topaz.png",
-    "sapphire": "gem_sapphire.png",
-    "aquamarine": "gem_aquamarine.png",
-}
+from .profile import ScannerProfile
 
 
 def scan_inventory(
     image_path: str | Path,
     ocr_json_path: str | Path,
     template_dir: str | Path,
+    profile: ScannerProfile | None = None,
+    quantity_reader: Callable[[np.ndarray, Box, float], int | None] | None = None,
 ) -> dict:
     """파일명에 의존하지 않고 시각 탐지와 OCR 단어를 결합한다."""
     image = _read_image(Path(image_path))
     words = load_upstage_words(ocr_json_path)
     numbers = [word for word in words if _integer_value(word.text) is not None]
-    scale = image.shape[1] / BASE_SCREEN_WIDTH
+    profile = profile or ScannerProfile()
+    scale = image.shape[1] / profile.base_screen_width
     templates = Path(template_dir)
 
-    results = _scan_single_items(image, templates, numbers, scale)
-    results.extend(_scan_unbound_gems(image, templates, numbers, scale))
+    results = _scan_single_items(
+        image, templates, numbers, scale, profile, quantity_reader
+    )
+    results.extend(_scan_unbound_gems(image, templates, numbers, scale, profile))
     return {
         "source": Path(image_path).name,
         "character_id": extract_character_id(words, image.shape[1]),
@@ -56,6 +45,42 @@ def scan_inventory(
             for item in results
         ],
     }
+
+
+def calibrate_templates(
+    image_path: str | Path,
+    template_dir: str | Path,
+    profile: ScannerProfile | None = None,
+) -> list[dict]:
+    image = _read_image(Path(image_path))
+    profile = profile or ScannerProfile()
+    scale = image.shape[1] / profile.base_screen_width
+    root = Path(template_dir)
+    templates = (
+        profile.item_templates
+        | {f"gem_{name}": filename for name, filename in profile.gem_templates.items()}
+        | {"trade_marker": "trade_marker.png"}
+    )
+    results = []
+    for name, filename in templates.items():
+        path = root / filename
+        if not path.exists():
+            continue
+        box, score = _best_match(image, _scaled_template(path, scale))
+        results.append(
+            {
+                "name": name,
+                "template": filename,
+                "score": round(score, 4),
+                "box": {
+                    "x": box.x,
+                    "y": box.y,
+                    "width": box.width,
+                    "height": box.height,
+                },
+            }
+        )
+    return sorted(results, key=lambda result: result["score"], reverse=True)
 
 
 def load_upstage_words(path: str | Path) -> list[OcrWord]:
@@ -91,7 +116,15 @@ def extract_character_id(words: list[OcrWord], image_width: int) -> str:
         and word.text
         and not any(character.isdigit() for character in word.text)
     ]
-    return min(candidates, key=lambda word: (word.box.y, word.box.x)).text if candidates else ""
+    if not candidates:
+        return ""
+    first = min(candidates, key=lambda word: (word.box.y, word.box.x))
+    same_line = [
+        word
+        for word in candidates
+        if abs(word.box.center_y - first.box.center_y) <= max(4, first.box.height * 0.35)
+    ]
+    return "".join(word.text for word in sorted(same_line, key=lambda word: word.box.x))
 
 
 def _scan_single_items(
@@ -99,25 +132,37 @@ def _scan_single_items(
     template_dir: Path,
     numbers: list[OcrWord],
     scale: float,
+    profile: ScannerProfile,
+    quantity_reader: Callable[[np.ndarray, Box, float], int | None] | None,
 ) -> list[InventoryItem]:
     results: list[InventoryItem] = []
-    for name, filename in ITEM_TEMPLATES.items():
+    for name, filename in profile.item_templates.items():
         template_path = template_dir / filename
         if not template_path.exists():
             continue
         box, score = _best_match(image, _scaled_template(template_path, scale))
-        if score < ITEM_PRESENCE_THRESHOLD:
+        if score < profile.item_presence_threshold:
             continue
         quantity = _nearest_quantity(box, numbers, scale)
+        refined_quantity = (
+            quantity_reader(image, box, scale)
+            if quantity is None and quantity_reader is not None
+            else None
+        )
         # 아이템 외형이 일치해도 주변 OCR 숫자가 없으면 수량을 확정하지 않는다.
-        status = "found" if quantity is not None else "needs_review"
+        value = _integer_value(quantity.text) if quantity else refined_quantity
+        status = "found" if value is not None else "needs_review"
         results.append(
             InventoryItem(
                 name=name,
-                quantity=_integer_value(quantity.text) if quantity else None,
+                quantity=value,
                 match_score=round(score, 4),
                 status=status,
-                notes="" if status == "found" else "item or nearby OCR quantity is ambiguous",
+                notes=(
+                    "quantity read from item region"
+                    if refined_quantity is not None
+                    else ("" if status == "found" else "item or nearby OCR quantity is ambiguous")
+                ),
             )
         )
     return results
@@ -128,6 +173,7 @@ def _scan_unbound_gems(
     template_dir: Path,
     numbers: list[OcrWord],
     scale: float,
+    profile: ScannerProfile,
 ) -> list[InventoryItem]:
     marker_path = template_dir / "trade_marker.png"
     if not marker_path.exists():
@@ -136,16 +182,16 @@ def _scan_unbound_gems(
     marker = _scaled_template(marker_path, scale)
     marker_boxes = [
         box
-        for box, _ in _template_matches(image, marker, threshold=0.90)
-        if image.shape[1] * 0.55 <= box.x <= image.shape[1] * 0.96
-        and image.shape[0] * 0.25 <= box.y <= image.shape[0] * 0.75
+        for box, _ in _template_matches(image, marker, threshold=profile.trade_marker_threshold)
+        if image.shape[1] * profile.marker_roi[0] <= box.x <= image.shape[1] * profile.marker_roi[2]
+        and image.shape[0] * profile.marker_roi[1] <= box.y <= image.shape[0] * profile.marker_roi[3]
     ]
 
     results: list[InventoryItem] = []
     seen: set[str] = set()
     for marker_box in marker_boxes:
         cell = _cell_from_marker(marker_box, scale)
-        name, score = _classify_gem(image, cell, template_dir, scale)
+        name, score = _classify_gem(image, cell, template_dir, scale, profile)
         if not name or name in seen:
             continue
         seen.add(name)
@@ -168,6 +214,7 @@ def _classify_gem(
     cell: Box,
     template_dir: Path,
     scale: float,
+    profile: ScannerProfile,
 ) -> tuple[str | None, float]:
     crop = image[
         max(0, cell.y) : min(image.shape[0], cell.y + cell.height),
@@ -175,14 +222,14 @@ def _classify_gem(
     ]
     best_name: str | None = None
     best_score = -1.0
-    for name, filename in NORMAL_GEM_TEMPLATES.items():
+    for name, filename in profile.gem_templates.items():
         path = template_dir / filename
         if not path.exists():
             continue
         _, score = _best_match(crop, _scaled_template(path, scale))
         if score > best_score:
             best_name, best_score = name, score
-    if best_score < GEM_CLASSIFICATION_THRESHOLD:
+    if best_score < profile.gem_classification_threshold:
         return None, best_score
     return best_name, best_score
 
@@ -255,7 +302,11 @@ def _quantity_in_cell(cell: Box, numbers: list[OcrWord], scale: float) -> OcrWor
         if cell.x - 4 * scale <= number.box.center_x <= cell.x + cell.width + 14 * scale
         and cell.y <= number.box.center_y <= cell.y + cell.height + 14 * scale
     ]
-    return max(candidates, key=lambda number: number.box.center_y) if candidates else None
+    return (
+        max(candidates, key=lambda number: (number.box.center_y, number.box.center_x))
+        if candidates
+        else None
+    )
 
 
 def _integer_value(text: str) -> int | None:

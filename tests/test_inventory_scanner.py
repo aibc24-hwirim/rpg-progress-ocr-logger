@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from rpg_progress_ocr_logger.inventory_scanner import (
+    calibrate_templates,
     extract_character_id,
     load_upstage_words,
     scan_inventory,
@@ -23,6 +24,15 @@ def test_extract_character_id_uses_top_left_region() -> None:
     ]
 
     assert extract_character_id(words, image_width=960) == "SampleHero"
+
+
+def test_extract_character_id_joins_words_on_same_line() -> None:
+    words = [
+        OcrWord("Sample", 0.98, Box(34, 18, 59, 18)),
+        OcrWord("Hero", 0.98, Box(95, 18, 56, 18)),
+        OcrWord("레벨:", 0.99, Box(33, 49, 33, 16)),
+    ]
+    assert extract_character_id(words, image_width=960) == "게임ID 1"
 
 
 def test_load_upstage_words_preserves_text_and_coordinates(tmp_path) -> None:
@@ -120,6 +130,29 @@ def test_scan_inventory_marks_missing_quantity_for_review(tmp_path: Path) -> Non
     assert item["status"] == "needs_review"
 
 
+def test_scan_inventory_uses_quantity_reader_for_missing_single_digit(tmp_path: Path) -> None:
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir()
+    template = _pattern(24, seed=21)
+    cv2.imwrite(str(template_dir / "crest_eternal_legendary.png"), template)
+    image = np.zeros((540, 960, 3), dtype=np.uint8)
+    _place(image, template, 600, 100)
+    image_path, ocr_path = tmp_path / "screen.png", tmp_path / "ocr.json"
+    cv2.imwrite(str(image_path), image)
+    _write_ocr(ocr_path, [("SampleHero", 34, 20, 110, 38)])
+
+    result = scan_inventory(
+        image_path,
+        ocr_path,
+        template_dir,
+        quantity_reader=lambda _image, _box, _scale: 1,
+    )
+
+    assert result["items"][0]["quantity"] == 1
+    assert result["items"][0]["status"] == "found"
+    assert result["items"][0]["notes"] == "quantity read from item region"
+
+
 def test_trade_marker_selects_only_unbound_gem(tmp_path: Path) -> None:
     template_dir = tmp_path / "templates"
     template_dir.mkdir()
@@ -149,6 +182,18 @@ def test_trade_marker_selects_only_unbound_gem(tmp_path: Path) -> None:
     assert result["items"][0]["status"] == "found"
 
 
+def test_quantity_in_cell_prefers_rightmost_number_on_same_row() -> None:
+    from rpg_progress_ocr_logger.inventory_scanner import _quantity_in_cell
+
+    numbers = [
+        OcrWord("2", 0.99, Box(809, 160, 8, 10)),
+        OcrWord("81", 0.99, Box(861, 159, 14, 12)),
+    ]
+    quantity = _quantity_in_cell(Box(816, 112, 62, 72), numbers, 1.0)
+    assert quantity is not None
+    assert quantity.text == "81"
+
+
 def test_missing_templates_produce_no_false_items(tmp_path: Path) -> None:
     template_dir = tmp_path / "templates"
     template_dir.mkdir()
@@ -160,6 +205,24 @@ def test_missing_templates_produce_no_false_items(tmp_path: Path) -> None:
     result = scan_inventory(image_path, ocr_path, template_dir)
 
     assert result["items"] == []
+
+
+def test_calibration_reports_score_and_coordinates_without_answers(tmp_path: Path) -> None:
+    template_dir = tmp_path / "templates"
+    template_dir.mkdir()
+    template = _pattern(24, seed=50)
+    cv2.imwrite(str(template_dir / "crest_rare.png"), template)
+    image = np.zeros((540, 960, 3), dtype=np.uint8)
+    _place(image, template, 620, 140)
+    image_path = tmp_path / "screen.png"
+    cv2.imwrite(str(image_path), image)
+
+    results = calibrate_templates(image_path, template_dir)
+
+    assert results[0]["name"] == "rare_crest"
+    assert results[0]["score"] == 1.0
+    assert results[0]["box"]["x"] == 620
+    assert "quantity" not in results[0]
 
 
 def _pattern(size: int, seed: int) -> np.ndarray:

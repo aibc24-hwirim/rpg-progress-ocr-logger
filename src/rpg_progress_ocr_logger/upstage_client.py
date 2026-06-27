@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
@@ -44,8 +46,17 @@ def call_document_digitization(image_path: str | Path, model: str) -> dict[str, 
         method="POST",
     )
 
-    with urllib.request.urlopen(request, timeout=180) as response:
-        return json.loads(response.read().decode("utf-8"))
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            if error.code != 429 or attempt == 4:
+                raise
+            retry_after = error.headers.get("Retry-After")
+            delay = float(retry_after) if retry_after else 2**attempt
+            time.sleep(max(1.0, delay))
+    raise RuntimeError("Upstage request retry loop ended unexpectedly")
 
 
 def extract_texts(data: Any) -> list[str]:
