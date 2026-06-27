@@ -15,7 +15,7 @@ from .inventory_export import (
 )
 from .parser import load_ocr_blocks, parse_progress_records
 from .profile import load_profile
-from .quantity_reader import read_quantity_region
+from .quantity_reader import read_quantity_glyph, read_quantity_region
 from .upstage_client import ocr_document_with_upstage
 from .sheets_export import write_csv
 
@@ -51,6 +51,7 @@ def main() -> None:
         action="store_true",
         help="Run OCR again on an item's quantity region when the original OCR omitted it.",
     )
+    scan_cmd.add_argument("--digit-templates", help="Local digit glyph template directory.")
     scan_cmd.add_argument("--out", default="local_outputs/scan.json", help="Result JSON path.")
 
     wide_cmd = subparsers.add_parser("export-wide", help="Merge scan JSON files into one row per character.")
@@ -92,12 +93,18 @@ def main() -> None:
         report_path = run_upstage_audit(args.images, args.out_dir)
         print(f"Wrote audit report to {report_path}")
     elif args.command == "scan":
+        def resolve_quantity(image, box, scale):
+            value = read_quantity_region(image, box, scale)
+            if value is None and args.digit_templates:
+                value = read_quantity_glyph(image, box, scale, args.digit_templates)
+            return value
+
         result = scan_inventory(
             args.image,
             args.ocr_json,
             args.templates,
             profile=load_profile(args.profile),
-            quantity_reader=read_quantity_region if args.refine_missing_quantities else None,
+            quantity_reader=resolve_quantity if args.refine_missing_quantities else None,
         )
         output_path = Path(args.out)
         output_path.parent.mkdir(parents=True, exist_ok=True)
